@@ -1,4 +1,5 @@
 #include "Wifi.hpp"
+#include "Sensors.hpp"
 #include <WiFi.h>
 #include <WebServer.h>
 
@@ -29,13 +30,14 @@ String RobotWifi::buildPage() {
     p += "<body style='font-family:sans-serif;max-width:480px;margin:20px'>";
     p += "<h2>Linjefølger</h2>";
 
-    p += "<p>Status: <b>" + String(running ? "KJØRER" : "STOPPET") + "</b></p>";
+    p += "<p>Status: <b id='status'>" + String(running ? "KJØRER" : "STOPPET") + "</b></p>";
+    p += "<p>Kalibrering: <b id='kal'>" + String(calibrating ? "PÅGÅR..." : (sensor.isCalibrated() ? "FERDIG" : "IKKE KALIBRERT")) + "</b></p>";
 
     // Start / Stopp / Kalibrer
     p += "<p>";
-    p += "<a href='/start'><button style='padding:10px 20px;font-size:16px;margin:4px'>START</button></a> ";
-    p += "<a href='/stopp'><button style='padding:10px 20px;font-size:16px;margin:4px'>STOPP</button></a> ";
-    p += "<a href='/kalibrer'><button style='padding:10px 20px;font-size:16px;margin:4px'>KALIBRER</button></a>";
+    p += "<button onclick='fetch(\"/start\")' style='padding:10px 20px;font-size:16px;margin:4px'>START</button> ";
+    p += "<button onclick='fetch(\"/stopp\")' style='padding:10px 20px;font-size:16px;margin:4px'>STOPP</button> ";
+    p += "<button onclick='fetch(\"/kalibrer\")' style='padding:10px 20px;font-size:16px;margin:4px'>KALIBRER</button>";
     p += "</p><hr>";
 
     // Basehastighet
@@ -56,11 +58,29 @@ String RobotWifi::buildPage() {
     p += "Kd: <input name='kd' type='number' step='0.001' value='" + String(kd, 4) + "'><br><br>";
     p += "<input type='submit' value='Oppdater PID'></form>";
 
+    // JS: poll status kvart sekund
+    p += "<script>"
+         "async function poll(){"
+         "  const r=await fetch('/status');"
+         "  const s=await r.json();"
+         "  document.getElementById('status').textContent=s.running?'KJØRER':'STOPPET';"
+         "  document.getElementById('kal').textContent=s.calibrating?'PÅGÅR...':s.calibrated?'FERDIG':'IKKE KALIBRERT';"
+         "}"
+         "setInterval(poll,500);poll();"
+         "</script>";
+
     p += "</body></html>";
     return p;
 }
 
 void RobotWifi::setupRoutes() {
+
+    server.on("/status", HTTP_GET, [this]() {
+        String json = "{\"running\":" + String(running ? "true" : "false") + ",";
+        json += "\"calibrating\":" + String(calibrating ? "true" : "false") + ",";
+        json += "\"calibrated\":" + String(sensor.isCalibrated() ? "true" : "false") + "}";
+        server.send(200, "application/json", json);
+    });
 
     server.on("/", HTTP_GET, [this]() {
         server.send(200, "text/html", buildPage());
@@ -82,10 +102,10 @@ void RobotWifi::setupRoutes() {
 
     server.on("/kalibrer", HTTP_GET, [this]() {
         running = false;
-        server.send(200, "text/html",
-            "<html><body><h2>Kalibrerer i 5 sek...</h2>"
-            "<p>Beveg roboten over linja!</p></body></html>");
+        calibrating = true;
+        server.send(200, "text/plain", "OK");
         sensor.calibrate(5000);
+        calibrating = false;
     });
 
     server.on("/set", HTTP_GET, [this]() {

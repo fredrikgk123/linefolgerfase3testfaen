@@ -18,6 +18,7 @@ private:
     float&  ki;
     float&  kd;
     Sensor& sensor;
+    bool    calibrating = false;
 
     void setupRoutes();
     String buildPage();

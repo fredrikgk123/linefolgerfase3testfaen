@@ -11,6 +11,8 @@ public:
     void calibrate(uint16_t duration_ms = 5000);
     uint16_t readPosition();
     void printValues();
+    bool isCalibrated() { return calibrated; }
+
     uint16_t values[COUNT];
 
 private:
