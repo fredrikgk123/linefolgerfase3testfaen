@@ -2,22 +2,24 @@
 #include "Motors.hpp"
 #include "Sensors.hpp"
 #include "Wifi.hpp"
+#include "Logger.hpp"
 
 // ======= PIN CONFIG =======
 #define LED_PIN   2
 
 // ======= TUNING =======
-int   baseSpeed    = 100;   // 0-255
-int   regSpeed     = 200;   // Maks svingehastighet 0-255
+int   baseSpeed    = 100;
+int   regSpeed     = 200;
 float kp           = 0.05f;
 float ki           = 0.0f;
 float kd           = 0.3f;
 bool  running      = false;
 
 // ======= OBJEKTER =======
-Motors  motors;
-Sensor  sensor;
-RobotWifi wifi(running, baseSpeed, regSpeed, kp, ki, kd, sensor);
+Motors    motors;
+Sensor    sensor;
+Logger    logger;
+RobotWifi wifi(running, baseSpeed, regSpeed, kp, ki, kd, sensor, logger);
 
 // ======= PID STATE =======
 float lastError  = 0.0f;
@@ -33,7 +35,6 @@ void setup() {
     sensor.begin();
     wifi.begin();
 
-    // LED lyser når klar
     digitalWrite(LED_PIN, HIGH);
     Serial.println("Klar! Koble til WiFi: LinjefølgerG11 / 12345678");
 }
@@ -41,9 +42,20 @@ void setup() {
 void loop() {
     wifi.handle();
 
+    static bool wasRunning = false;
+
     if (!running) {
         motors.stop();
+        wasRunning = false;
         return;
+    }
+
+    // Rising edge: just started
+    if (!wasRunning) {
+        integral = 0.0f;
+        lastError = 0.0f;
+        lastTime = millis();
+        wasRunning = true;
     }
 
     // Les posisjon
@@ -75,8 +87,15 @@ void loop() {
     motors.setLeft(leftSpeed);
     motors.setRight(rightSpeed);
 
-    // Debug
-    Serial.print("Pos: "); Serial.print(pos);
-    Serial.print(" | Err: "); Serial.print(error);
-    Serial.print(" | Corr: "); Serial.println(corr);
+    // ===== LOGGER =====
+    logger.record((int16_t)error, (int16_t)corr);
+
+    // Debug — kun kvar 100 ms for å ikkje bremse loopen
+    static unsigned long lastPrint = 0;
+    if (now - lastPrint >= 100) {
+        lastPrint = now;
+        Serial.print("Pos: "); Serial.print(pos);
+        Serial.print(" | Err: "); Serial.print(error);
+        Serial.print(" | Corr: "); Serial.println(corr);
+    }
 }
