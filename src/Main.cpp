@@ -3,6 +3,7 @@
 #include "Sensors.hpp"
 #include "Wifi.hpp"
 #include "Logger.hpp"
+#include "Encoder.hpp"
 
 // ======= PIN CONFIG =======
 #define LED_PIN   2
@@ -19,6 +20,7 @@ bool  running      = false;
 Motors    motors;
 Sensor    sensor;
 Logger    logger;
+Encoder   encoder;
 RobotWifi wifi(running, baseSpeed, regSpeed, kp, ki, kd, sensor, logger);
 
 // ======= PID STATE =======
@@ -33,6 +35,7 @@ void setup() {
 
     motors.begin();
     sensor.begin();
+    encoder.begin();
     wifi.begin();
 
     digitalWrite(LED_PIN, HIGH);
@@ -41,6 +44,9 @@ void setup() {
 
 void loop() {
     wifi.handle();
+
+    // Oppdater RPM-beregning kontinuerlig
+    encoder.update();
 
     static bool wasRunning = false;
 
@@ -52,9 +58,10 @@ void loop() {
 
     // Rising edge: just started
     if (!wasRunning) {
-        integral = 0.0f;
+        integral  = 0.0f;
         lastError = 0.0f;
-        lastTime = millis();
+        lastTime  = millis();
+        encoder.resetPulses();
         wasRunning = true;
     }
 
@@ -87,15 +94,23 @@ void loop() {
     motors.setLeft(leftSpeed);
     motors.setRight(rightSpeed);
 
-    // ===== LOGGER =====
+    // ===== LOGGER: sensor =====
     logger.record((int16_t)error, (int16_t)corr);
 
-    // Debug — kun kvar 100 ms for å ikkje bremse loopen
+    // ===== LOGGER: encoder =====
+    logger.recordEncoder(
+        encoder.getLeftPulses(),
+        encoder.getRightPulses(),
+        encoder.getLeftRPM(),
+        encoder.getRightRPM()
+    );
+
+    // Debug — kun kvart 100 ms for å ikkje bremse loopen
     static unsigned long lastPrint = 0;
     if (now - lastPrint >= 100) {
         lastPrint = now;
-        Serial.print("Pos: "); Serial.print(pos);
-        Serial.print(" | Err: "); Serial.print(error);
-        Serial.print(" | Corr: "); Serial.println(corr);
+        Serial.printf("Pos:%u | Err:%.0f | Corr:%d | L_RPM:%.0f | R_RPM:%.0f\n",
+                      pos, error, corr,
+                      encoder.getLeftRPM(), encoder.getRightRPM());
     }
 }

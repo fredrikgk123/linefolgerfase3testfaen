@@ -42,13 +42,15 @@ String RobotWifi::buildPage() {
 
     // ========== DATALOGGER ==========
     p += "<h3>Datalogger</h3>";
-    p += "<p>Samples: <b id='logcount'>" + String(logger.count()) + "/" + String(logger.capacity()) + "</b>";
+    p += "<p>Sensor samples: <b id='logcount'>" + String(logger.count()) + "/" + String(logger.capacity()) + "</b>";
+    p += " | Encoder samples: <b id='enccount'>" + String(logger.encoderCount()) + "/" + String(logger.capacity()) + "</b>";
     p += " | <b id='logstate'>" + String(logger.isLogging() ? "LOGGER" : "STOPPET") + "</b></p>";
     p += "<p>";
     p += "<button onclick='fetch(\"/log/start\")' style='padding:10px 20px;font-size:16px;margin:4px'>Start logging</button> ";
     p += "<button onclick='fetch(\"/log/stop\")' style='padding:10px 20px;font-size:16px;margin:4px'>Stopp logging</button> ";
-    p += "<button onclick='fetch(\"/log/reset\")' style='padding:10px 20px;font-size:16px;margin:4px'>Nullstill</button><br>";
-    p += "<a href='/log/download' download='robotlog.csv'><button style='padding:12px 24px;font-size:16px;margin:4px;background:#4caf50;color:white;border:none;border-radius:4px;cursor:pointer'>LAST NED CSV</button></a>";
+    p += "<button onclick='fetch(\"/log/reset\")' style='padding:10px 20px;font-size:16px;margin:4px'>Nullstill</button><br><br>";
+    p += "<a href='/log/download' download='sensorlog.csv'><button style='padding:12px 24px;font-size:16px;margin:4px;background:#4caf50;color:white;border:none;border-radius:4px;cursor:pointer'>Last ned sensor CSV</button></a> ";
+    p += "<a href='/log/download/encoder' download='encoderlog.csv'><button style='padding:12px 24px;font-size:16px;margin:4px;background:#2196f3;color:white;border:none;border-radius:4px;cursor:pointer'>Last ned encoder CSV</button></a>";
     p += "</p><hr>";
 
     p += "<h3>Basehastighet (0-255)</h3>";
@@ -74,6 +76,7 @@ String RobotWifi::buildPage() {
          "    document.getElementById('status').textContent=s.running?'KJORER':'STOPPET';"
          "    document.getElementById('kal').textContent=s.calibrating?'PAGAR...':s.calibrated?'FERDIG':'IKKE KALIBRERT';"
          "    document.getElementById('logcount').textContent=s.logcount+'/'+s.logcap;"
+         "    document.getElementById('enccount').textContent=s.enccount+'/'+s.logcap;"
          "    document.getElementById('logstate').textContent=s.logging?'LOGGER':'STOPPET';"
          "  }catch(e){}"
          "}"
@@ -92,6 +95,7 @@ void RobotWifi::setupRoutes() {
         json += "\"calibrated\":" + String(sensor.isCalibrated() ? "true" : "false") + ",";
         json += "\"logging\":" + String(logger.isLogging() ? "true" : "false") + ",";
         json += "\"logcount\":" + String(logger.count()) + ",";
+        json += "\"enccount\":" + String(logger.encoderCount()) + ",";
         json += "\"logcap\":" + String(logger.capacity()) + "}";
         server.send(200, "application/json", json);
     });
@@ -154,10 +158,11 @@ void RobotWifi::setupRoutes() {
         server.send(200, "text/plain", "Logger nullstilt");
     });
 
+    // ===== SENSOR CSV =====
     server.on("/log/download", HTTP_GET, [this]() {
         logger.stop();
 
-        server.sendHeader("Content-Disposition", "attachment; filename=robotlog.csv");
+        server.sendHeader("Content-Disposition", "attachment; filename=sensorlog.csv");
         server.setContentLength(CONTENT_LENGTH_UNKNOWN);
         server.send(200, "text/csv", "");
         server.sendContent("time_s,error,correction\n");
@@ -172,6 +177,29 @@ void RobotWifi::setupRoutes() {
             if ((i & 0x1F) == 0) yield();
         }
         server.client().stop();
-        Serial.printf("CSV lastet ned (%u samples)\n", total);
+        Serial.printf("Sensor CSV lastet ned (%u samples)\n", total);
+    });
+
+    // ===== ENCODER CSV =====
+    server.on("/log/download/encoder", HTTP_GET, [this]() {
+        logger.stop();
+
+        server.sendHeader("Content-Disposition", "attachment; filename=encoderlog.csv");
+        server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+        server.send(200, "text/csv", "");
+        server.sendContent("time_s,left_pulses,right_pulses,left_rpm,right_rpm\n");
+
+        char line[64];
+        uint16_t total = logger.encoderCount();
+        for (uint16_t i = 0; i < total; i++) {
+            const Logger::EncoderSample& s = logger.encoderAt(i);
+            float t_s = s.t_ms / 1000.0f;
+            snprintf(line, sizeof(line), "%.3f,%ld,%ld,%.1f,%.1f\n",
+                     t_s, s.leftPulses, s.rightPulses, s.leftRPM, s.rightRPM);
+            server.sendContent(line);
+            if ((i & 0x1F) == 0) yield();
+        }
+        server.client().stop();
+        Serial.printf("Encoder CSV lastet ned (%u samples)\n", total);
     });
 }
